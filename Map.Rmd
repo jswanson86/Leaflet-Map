@@ -1,0 +1,134 @@
+---
+title: "DOEA Elder Needs Index (ENI) Map"
+output:
+  flexdashboard::flex_dashboard:
+    theme: readable
+    logo: DOEA Logo.jpg
+---
+
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rgdal)
+library(sf)
+library(dplyr)
+library(raster)
+library(openxlsx)
+library(tidyr)
+library(htmlwidgets)
+library(rgeos)
+library(leaflet)
+library(leaflet.extras)
+library(RColorBrewer)
+```
+
+
+```{r include=F}
+#import the shapefile for the county 
+m =readOGR("Z:/Planning and Evaluation/Elder Needs Index/2019 FL ENI Project/Leaflet_Test/Florida_ENI_2019.shp", stringsAsFactors = F)
+m = spTransform(m, CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0 +units=m"))
+
+g =readOGR("Z:/Planning and Evaluation/Elder Needs Index/2019 FL ENI Project/Leaflet_Test/ENI_ZeroPop_2019.shp", stringsAsFactors = F)
+g = spTransform(g, CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0 +units=m"))
+
+a = rbind(m[,c(1:4,9)],g[,-5])
+
+psa <- aggregate(a[, "PSA_2019"], by = list(ID = a@data$PSA_2019), 
+                    FUN = unique, dissolve = T)
+
+#ENI Rank
+qpal <- colorFactor(palette = rev(brewer.pal(11,"PiYG"))[7:11],levels =c("0.00% - 14.36%","14.37% - 20.24%","20.25% - 27.56%","27.57% - 37.74%","37.75% - 75.00%"))
+qpal_colors <- unique(qpal(sort(factor(m$Rank_ENI,levels =c("0.00% - 14.36%","14.37% - 20.24%","20.25% - 27.56%","27.57% - 37.74%","37.75% - 75.00%")))))          
+qpal_labs = c("0.00% - 14.36%","14.37% - 20.24%","20.25% - 27.56%","27.57% - 37.74%","37.75% - 75.00%")
+
+#poverty
+qpal2 <- colorFactor(palette = (brewer.pal(9,"Reds"))[c(2,3,5,7,9)],levels =c("0.00% - 10.73%" ,"10.74% - 18.98%","18.99% - 29.40%","29.41% - 46.23%" ,"46.24% - 100.00%"))
+qpal_colors2 <- unique(qpal2(sort(factor(m$Rank_Pov,levels =c("0.00% - 10.73%" ,"10.74% - 18.98%","18.99% - 29.40%","29.41% - 46.23%" ,"46.24% - 100.00%")))))        
+qpal_labs2 = c("0.00% - 10.73%" ,"10.74% - 18.98%","18.99% - 29.40%","29.41% - 46.23%" ,"46.24% - 100.00%")
+
+#85+
+qpal3 <- colorFactor(palette = (brewer.pal(9,"Purples"))[c(2,3,5,7,9)],levels =c("0.00% - 5.01%" ,"5.02% - 9.38%","9.39% - 14.44%","14.45% - 22.64%" ,"22.65% - 50.21%"))
+qpal_colors3 <- unique(qpal3(sort(factor(m$Rank_85Plu,levels =c("0.00% - 5.01%" ,"5.02% - 9.38%","9.39% - 14.44%","14.45% - 22.64%" ,"22.65% - 50.21%")))))        
+qpal_labs3 = c("0.00% - 5.01%" ,"5.02% - 9.38%","9.39% - 14.44%","14.45% - 22.64%" ,"22.65% - 50.21%")
+
+#minority
+qpal4 <- colorFactor(palette = (brewer.pal(9,"Greens"))[c(2,3,5,7,9)],levels =c("0.00% - 10.04%" ,"10.05% - 23.09%","23.10% - 41.97%" ,"41.98% - 68.65%" ,"68.66% - 100.00%"))
+qpal_colors4 <- unique(qpal4(sort(factor(m$Rank_Minor,levels =c("0.00% - 10.04%" ,"10.05% - 23.09%","23.10% - 41.97%" ,"41.98% - 68.65%" ,"68.66% - 100.00%")))))          
+qpal_labs4 = c("0.00% - 10.04%" ,"10.05% - 23.09%","23.10% - 41.97%" ,"41.98% - 68.65%" ,"68.66% - 100.00%")
+
+#disabled
+qpal5 <- colorFactor(palette = (brewer.pal(9,"Greys"))[c(2,3,5,7,9)],levels =c("0.00% - 21.88%" ,"21.89% - 31.22%","31.23% - 39.76%" ,"39.77% - 50.82%" ,"50.83% - 100.00%"))
+qpal_colors5 <- unique(qpal5(sort(factor(m$Rank_Disab,levels =c("0.00% - 21.88%" ,"21.89% - 31.22%","31.23% - 39.76%" ,"39.77% - 50.82%" ,"50.83% - 100.00%")))))          
+qpal_labs5 = c("0.00% - 21.88%" ,"21.89% - 31.22%","31.23% - 39.76%" ,"39.77% - 50.82%" ,"50.83% - 100.00%")
+
+qpal_colorss = list(qpal_colors,qpal_colors2,qpal_colors3,qpal_colors4,qpal_colors5)
+qpal_labss = list(qpal_labs,qpal_labs2,qpal_labs3,qpal_labs4,qpal_labs5)
+qpalss = list(qpal(m$Rank_ENI),qpal2(m$Rank_Pov),
+              qpal3(m$Rank_85Plu),qpal4(m$Rank_Minor),qpal5(m$Rank_Disab))
+groups = c("ENI","%Poverty 60+","%85+","%60+ Minority","%Disabled 65+")
+
+mapbox_url = "https://api.mapbox.com/styles/v1/doea15/ck5e9g4v30s871iuo3ks3rr39/tiles/256/{z}/{x}/{y}@2x?access_token=pk.eyJ1IjoiZG9lYTE1IiwiYSI6ImNrNWU5MDc1dzAybXMzbnFyMHN2aGdyNHkifQ.6aVgNJZPKidVs2JisXsYHg"
+
+map_attr <- "Prepared by the Florida Department of Elder Affairs with © <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a>"
+
+rawleafletmap <- leaflet(width="100%", height="100%")%>%addTiles(urlTemplate = mapbox_url, attribution = map_attr)%>%setView(-81.5158, 27.6648, zoom =6.3)
+
+holder = c("Elder Needs Index (All Factors):","Percent in Poverty","Percent 85+","Percent Minority","Percent Disability (65+)")
+var = c("ENI_Tot_2","ENI_Pov","ENI85","ENI_Min","ENI_Disab")
+LeafletLayer <- function(map,data, fill, group,legend_color,legend_label){
+  for (i in 1:5){
+    map <-  addPolygons(map=map,data=data,fillColor = fill[[i]], weight = 1, smoothFactor = 0.5,
+                        color="white",
+                        dashArray = "3",
+                        fillOpacity = 0.5,
+                        group = group[i],
+                        highlight = highlightOptions(
+                          weight = 5,
+                          color = "#666",
+                          dashArray = "",
+                          fillOpacity = 0.5,
+                          bringToFront = TRUE),
+                         popup = paste("Tract:",m$NAMELSAD,"<br>",
+                                       "County:",m$County,"<br>",
+                                       "Population 60+:",format(as.numeric(m$Pop60Plus),big.mark=","),"<br>",
+                                       holder[i],paste(round(m@data[,var[i]],2),"%",sep=""))) %>%
+      addPolylines(data = psa,color = "black", opacity = 1, weight = 2,group = "PSA")%>%
+      addLegend("bottomleft", colors = legend_color[[i]], labels=legend_label[[i]],
+              title =group[i],opacity = 1,group=group[i])%>%hideGroup("PSA")
+      
+  }
+  map <-addLayersControl(map=map,baseGroups = group,
+                                                   overlayGroups = "PSA",
+                          options = layersControlOptions(collapsed = FALSE, autoZIndex = F))%>%
+  addResetMapButton()
+}
+
+map = LeafletLayer(map=rawleafletmap, data=m, fill=qpalss, 
+                   group=groups,legend_color=qpal_colorss,legend_label = qpal_labss)
+
+```
+
+
+
+```{r echo=FALSE,warning=F}
+map%>% onRender("
+    function(el, x) {
+      var updateLegend = function () {
+          var selectedGroup = document.querySelectorAll('input:checked')[0].nextSibling.innerText.substr(1);
+          var myNodeList = document.querySelectorAll('.legend');
+
+           Array.from(myNodeList).forEach(a=> a.hidden=true);
+          Array.from(myNodeList).forEach(l=> {
+            if (l.children[0].children[0].innerText == selectedGroup) l.hidden=false;
+          });
+      };
+      updateLegend();
+      this.on('baselayerchange', e => updateLegend());
+    }")%>%onRender("
+    function(el, x) {
+      this.on('baselayerchange', function(e) {
+        e.layer.bringToBack();
+      })
+    }
+  ")
+```
